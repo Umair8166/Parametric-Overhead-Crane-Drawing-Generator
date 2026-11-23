@@ -1,100 +1,59 @@
-import {
-  ALLOWED_CAPACITIES_T,
-  type DesignInput,
-  type ValidationIssue,
-  parseDesignInput,
-} from './validation.js';
-
 /**
- * Stored with every saved design so historical designs remain explainable
- * if crane rules or reference catalogs are updated later.
- */
-export const RULES_VERSION = 'ref-10t-25m-v1';
-
-export const CRANE_TYPE = 'Single-girder, top-running EOT crane';
-
-/**
- * Constants extracted from (or derived directly from) the attached reference
- * drawing (page 4: 10 t capacity, 25 000 mm span, 7 900 mm lifting height,
- * 8 321 mm rail height).
+ * Pure crane engineering rules and calculations (zero external dependencies).
  *
- * Every constant carries its source. Using these numbers for capacities or
- * spans other than 10 t / 25 000 mm is an extrapolation and is flagged as an
- * estimate in the API output and on the drawing.
+ * All crane-side constants come from a single attached reference drawing
+ * (page 4: single-girder top-running EOT crane, 10 t, 25 000 mm span,
+ * 7 900 mm lift, 8 321 mm rail height). When user inputs move away from
+ * 10 t / 25 000 mm, crane-dependent outputs are explicitly tagged as estimates.
  */
+
+export const RULES_VERSION = 'ref-10t-25m-v1';
+export const CRANE_TYPE = 'Single-girder, top-running EOT crane';
+export const PRELIMINARY_DISCLAIMER =
+  'PRELIMINARY OFFER DRAWING — NOT FOR CONSTRUCTION. Crane geometry is based on a single 10 t / 25 m reference drawing; extrapolated dimensions are estimates.';
+
+/**
+ * Standard metric hoist capacity steps (tonnes) up to a 16 t estimate ceiling
+ * for single-girder cranes. Reference drawing is 10 t.
+ */
+export const ALLOWED_CAPACITIES_T = [1, 2, 3.2, 5, 6.3, 8, 10, 12.5, 16] as const;
+export type AllowedCapacityT = (typeof ALLOWED_CAPACITIES_T)[number];
+
+/** Sourced constants extracted or directly derived from page 4 of the brief. */
 export const REFERENCE = {
-  /** Reference crane rated capacity (p.4 Technical Data: LOAD 10t). */
+  // Baseline crane shown on page 4
   capacityT: 10,
-  /** Reference crane rail-centreline span (p.4 Front Elevation: 25000). */
   spanMm: 25000,
-  /** Reference floor-to-rail-top elevation (p.4 Front Elevation: 8321). */
   railHeightMm: 8321,
-  /** Reference floor-to-highest-hook lifting height (p.4 Front Elevation: 7900). */
   liftHeightMm: 7900,
-  /** Reference floor-to-roof height: 8321 + 1569 (derived R2). */
-  buildingHeightMm: 9890,
+  buildingHeightMm: 9890, // R2: 8321 + 1569
 
-  /** Top of runway rail to top of bridge girder (p.4 Front Elevation: 1369). */
-  craneHeightAboveRailMm: 1369,
-  /** Top of bridge girder to underside of roof (p.4 Front Elevation: 200). */
-  roofClearanceMm: 200,
-  /**
-   * Required headroom above top of rail: 1369 + 200 = 1569 mm (derived R1,
-   * matches p.4 Front Elevation: 1569 exactly).
-   */
-  headroomAboveRailMm: 1569,
+  // Vertical clearances (p.4 Front Elevation)
+  craneHeightAboveRailMm: 1369, // rail top -> girder top
+  roofClearanceMm: 200, // girder top -> roof underside
+  headroomAboveRailMm: 1569, // R1: 1369 + 200 (matches drawing)
+  hookBelowGirderMm: 620, // datum interpreted as girder underside -> highest hook
+  girderUndersideAboveRailMm: 199, // R4: 7900 + 620 - 8321 (depends on 620 datum)
+  liftLossMm: 421, // R5: 620 - 199 (reproduces 8321 - 421 = 7900)
 
-  /**
-   * Girder underside to highest hook position (p.4 Front Elevation: 620).
-   * Datum interpretation: extension line begins at the underside of the girder.
-   */
-  hookBelowGirderMm: 620,
-  /**
-   * Girder underside elevation above top of rail: 7900 + 620 - 8321 = 199 mm
-   * (derived R4; depends on the 620 mm datum interpretation).
-   */
-  girderUndersideAboveRailMm: 199,
-  /**
-   * Girder depth implied by 1369 - 199 = 1170 mm (derived from R4; depends on
-   * the 620 mm datum interpretation).
-   */
-  girderDepthMm: 1170,
-  /**
-   * Maximum achievable lifting height loss below top of rail: 620 - 199 = 421 mm
-   * (derived R5; reproduces 8321 - 421 = 7900 mm exactly).
-   */
-  liftLossMm: 421,
-
-  /** Left rail centreline to closest hook centreline (p.4 Front Elevation: Min.920). */
-  hookApproachLeftMm: 920,
-  /**
-   * Right rail centreline to closest hook centreline (p.4 Front Elevation: Min.1150).
-   * Asymmetric because the hoist motor/body overhangs one side.
-   */
-  hookApproachRightMm: 1150,
-
-  /**
-   * End-carriage overhang past each rail centreline: (25270 - 25000) / 2 = 135 mm
-   * (derived R6 from p.4 Plan View: 25270 overall bridge length).
-   */
-  endCarriageOverhangMm: 135,
-  /** Minimum rail centreline to building wall face (p.4 Front Elevation: Min.235). */
-  minWallClearanceMm: 235,
-
-  /** End-carriage wheel centre to wheel centre (p.4 Plan View: 3800). */
-  wheelbaseMm: 3800,
-  /** Overall end-carriage length including buffers (p.4 Plan View: 4310). */
-  endCarriageLengthMm: 4310,
-  /** Runway wheel diameter (p.4 Detail Z: Ø250). */
-  wheelDiameterMm: 250,
-  /** Runway rail bar cross-section width x height (p.4 Detail Z: RAIL 50x30). */
-  railSectionWidthMm: 50,
-  railSectionHeightMm: 30,
-  /** Pendant push-button clearance above floor (p.4 Front Elevation: 1000). */
-  pendantBottomAboveFloorMm: 1000,
+  // Horizontal clearances (p.4 Front Elevation & Plan View)
+  hookApproachLeftMm: 920, // Min.920 (left rail CL -> hook CL)
+  hookApproachRightMm: 1150, // Min.1150 (right rail CL -> hook CL, asymmetric hoist)
+  endCarriageOverhangMm: 135, // R6: (25270 overall bridge - 25000 span) / 2
+  minWallClearanceMm: 235, // Min.235 (rail CL -> wall face, ~100 mm gap to crane end)
 } as const;
 
-/** Default form input — equals the reference drawing (golden test case). */
+export interface DesignInput {
+  name: string;
+  capacityT: AllowedCapacityT;
+  spanMm: number;
+  railHeightMm: number;
+  liftHeightMm: number;
+  buildingHeightMm: number | null;
+  wallClearanceMm: number | null;
+}
+
+/** Default inputs equal the reference drawing (doubles as our golden test). */
 export const DEFAULT_DESIGN_INPUT: DesignInput = {
   name: '10t-25m-7.9m',
   capacityT: REFERENCE.capacityT,
@@ -105,50 +64,35 @@ export const DEFAULT_DESIGN_INPUT: DesignInput = {
   wallClearanceMm: REFERENCE.minWallClearanceMm,
 };
 
-export type ProvenanceKind = 'user_input' | 'reference_drawing' | 'derived' | 'estimate';
+export interface FieldMessage {
+  field: string;
+  message: string;
+}
 
-export interface DimensionRecord {
+export type Provenance = 'user_input' | 'reference_drawing' | 'derived' | 'estimate';
+
+export interface DimensionItem {
   key: string;
   label: string;
   value: number;
   unit: 'mm' | 't';
-  provenance: ProvenanceKind;
+  provenance: Provenance;
   source: string;
-  formula?: string;
-}
-
-export interface DomainWarning {
-  field: string;
-  code: string;
-  message: string;
 }
 
 export interface DerivedDimensions {
-  craneHeightAboveRailMm: number;
-  roofClearanceMm: number;
-  headroomAboveRailMm: number;
   craneTopElevationMm: number;
   requiredBuildingHeightMm: number;
   effectiveBuildingHeightMm: number;
   actualRoofClearanceMm: number;
   roofHeadroomMarginMm: number | null;
   girderUndersideElevationMm: number;
-  girderDepthMm: number;
-  hookBelowGirderMm: number;
   maxLiftHeightMm: number;
   liftMarginMm: number;
-  hookApproachLeftMm: number;
-  hookApproachRightMm: number;
   hookCoverageMm: number;
-  endCarriageOverhangMm: number;
   overallBridgeLengthMm: number;
-  minWallClearanceMm: number;
   effectiveWallClearanceMm: number;
   endToWallGapMm: number;
-  buildingInteriorWidthMm: number;
-  wheelbaseMm: number;
-  endCarriageLengthMm: number;
-  pendantBottomAboveFloorMm: number;
 }
 
 export interface DesignEvaluation {
@@ -156,342 +100,157 @@ export interface DesignEvaluation {
   rulesVersion: string;
   isExtrapolated: boolean;
   derived: DerivedDimensions;
-  dimensions: DimensionRecord[];
-  warnings: DomainWarning[];
+  dimensions: DimensionItem[];
+  warnings: FieldMessage[];
   disclaimer: string;
 }
 
-export const PRELIMINARY_DISCLAIMER =
-  'PRELIMINARY OFFER DRAWING — NOT FOR CONSTRUCTION. Crane geometry is fixed from a single 10 t / 25 m reference drawing; extrapolated dimensions are estimates.';
-
 /**
- * Layer 2 (Domain) validation: checks cross-field physical fit rules.
- * Returns blocking validation issues using the same shape as schema errors.
+ * Layer 2 (Domain) validation: blocking cross-field physical fit checks.
  */
-export function validateDomainRules(input: DesignInput): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
+export function validateDomainRules(input: DesignInput): FieldMessage[] {
+  const errors: FieldMessage[] = [];
 
-  // Guard hook coverage > 0 even if called directly without Zod bounds.
-  const minSpanForApproaches = REFERENCE.hookApproachLeftMm + REFERENCE.hookApproachRightMm;
-  if (input.spanMm <= minSpanForApproaches) {
-    issues.push({
+  const minSpan = REFERENCE.hookApproachLeftMm + REFERENCE.hookApproachRightMm;
+  if (input.spanMm <= minSpan) {
+    errors.push({
       field: 'spanMm',
-      code: 'SPAN_TOO_SMALL_FOR_APPROACHES',
-      message: `Span (${input.spanMm} mm) must be greater than the combined left + right hook approaches (${minSpanForApproaches} mm).`,
+      message: `Span (${input.spanMm} mm) must exceed combined left + right hook approaches (${minSpan} mm).`,
     });
   }
 
   // Rule R5: liftHeightMm <= railHeightMm - 421
-  const maxLiftHeightMm = input.railHeightMm - REFERENCE.liftLossMm;
-  if (input.liftHeightMm > maxLiftHeightMm) {
-    issues.push({
+  const maxLift = input.railHeightMm - REFERENCE.liftLossMm;
+  if (input.liftHeightMm > maxLift) {
+    errors.push({
       field: 'liftHeightMm',
-      code: 'LIFT_EXCEEDS_MAX',
-      message: `Lifting height (${input.liftHeightMm} mm) exceeds the maximum achievable lift of ${maxLiftHeightMm} mm for a ${input.railHeightMm} mm rail height (rail height − ${REFERENCE.liftLossMm} mm lift loss, derived from reference drawing R5).`,
+      message: `Lifting height (${input.liftHeightMm} mm) exceeds maximum achievable lift of ${maxLift} mm (rail height − ${REFERENCE.liftLossMm} mm, rule R5).`,
     });
   }
 
   // Rule R2: buildingHeightMm >= railHeightMm + 1569 (when provided)
   if (input.buildingHeightMm !== null) {
-    const requiredBuildingHeightMm = input.railHeightMm + REFERENCE.headroomAboveRailMm;
-    if (input.buildingHeightMm < requiredBuildingHeightMm) {
-      issues.push({
+    const minBuilding = input.railHeightMm + REFERENCE.headroomAboveRailMm;
+    if (input.buildingHeightMm < minBuilding) {
+      errors.push({
         field: 'buildingHeightMm',
-        code: 'BUILDING_HEIGHT_INSUFFICIENT',
-        message: `Building clear height (${input.buildingHeightMm} mm) is less than the minimum ${requiredBuildingHeightMm} mm required (rail height ${input.railHeightMm} mm + ${REFERENCE.craneHeightAboveRailMm} mm crane height + ${REFERENCE.roofClearanceMm} mm roof clearance, rules R1/R2).`,
+        message: `Building clear height (${input.buildingHeightMm} mm) is below the minimum ${minBuilding} mm required (rail + ${REFERENCE.craneHeightAboveRailMm} mm crane + ${REFERENCE.roofClearanceMm} mm roof clearance, rules R1/R2).`,
       });
     }
   }
 
-  // Side clearance rule: wallClearanceMm >= 235 (when provided)
+  // Minimum side clearance from rail centreline to wall face (p.4 Min.235)
   if (input.wallClearanceMm !== null && input.wallClearanceMm < REFERENCE.minWallClearanceMm) {
-    issues.push({
+    errors.push({
       field: 'wallClearanceMm',
-      code: 'WALL_CLEARANCE_INSUFFICIENT',
-      message: `Wall clearance (${input.wallClearanceMm} mm) is below the minimum ${REFERENCE.minWallClearanceMm} mm required from rail centreline to wall face (reference drawing Min.235; gives ~100 mm crane-to-wall gap).`,
+      message: `Wall clearance (${input.wallClearanceMm} mm) is below the minimum ${REFERENCE.minWallClearanceMm} mm required from rail centreline to wall face (reference drawing Min.235).`,
     });
   }
 
-  return issues;
+  return errors;
 }
 
-/**
- * Generates non-blocking warnings when inputs move outside the single
- * 10 t / 25 m reference drawing envelope.
- */
-export function collectDomainWarnings(input: DesignInput): DomainWarning[] {
-  const warnings: DomainWarning[] = [];
+/** Non-blocking warnings when inputs go outside the 10 t / 25 m reference envelope. */
+export function collectWarnings(input: DesignInput): FieldMessage[] {
+  const warnings: FieldMessage[] = [];
 
   if (input.capacityT !== REFERENCE.capacityT) {
     warnings.push({
       field: 'capacityT',
-      code: 'CAPACITY_EXTRAPOLATED',
-      message: `Capacity is ${input.capacityT} t, but crane height (${REFERENCE.craneHeightAboveRailMm} mm), hook headroom (${REFERENCE.hookBelowGirderMm} mm), and hook approaches (${REFERENCE.hookApproachLeftMm} / ${REFERENCE.hookApproachRightMm} mm) are fixed from the ${REFERENCE.capacityT} t reference drawing. Real hoist dimensions will differ (estimate only).`,
+      message: `Hoist and crane clearances (1369 / 620 / 920 / 1150 mm) are fixed from the 10 t reference drawing. For a ${input.capacityT} t crane these are estimates only.`,
     });
   }
 
   if (input.spanMm > REFERENCE.spanMm) {
     warnings.push({
       field: 'spanMm',
-      code: 'SPAN_ABOVE_REFERENCE',
-      message: `Span (${input.spanMm} mm) exceeds the ${REFERENCE.spanMm} mm reference crane. A longer bridge girder is typically deeper, so crane height (${REFERENCE.craneHeightAboveRailMm} mm) and required headroom (${REFERENCE.headroomAboveRailMm} mm) may be underestimated (non-conservative).`,
+      message: `Span (${input.spanMm} mm) exceeds the 25000 mm reference crane. A longer girder is typically deeper, so required headroom (1569 mm) may be underestimated.`,
     });
   }
 
   return warnings;
 }
 
-/**
- * Pure calculation function: takes a valid DesignInput and returns all derived
- * dimensions, per-dimension provenance records, and warnings.
- */
+const dim = (
+  key: string,
+  label: string,
+  value: number,
+  unit: 'mm' | 't',
+  provenance: Provenance,
+  source: string,
+): DimensionItem => ({ key, label, value, unit, provenance, source });
+
+/** Pure calculation: computes derived geometry, provenance list, and warnings. */
 export function evaluateDesign(input: DesignInput): DesignEvaluation {
-  const capacityDiffers = input.capacityT !== REFERENCE.capacityT;
-  const spanDiffers = input.spanMm !== REFERENCE.spanMm;
-  const isExtrapolated = capacityDiffers || spanDiffers;
+  const isExtrapolated =
+    input.capacityT !== REFERENCE.capacityT || input.spanMm !== REFERENCE.spanMm;
+  const refTag: Provenance = isExtrapolated ? 'estimate' : 'reference_drawing';
+  const drvTag: Provenance = isExtrapolated ? 'estimate' : 'derived';
+  const ext = isExtrapolated ? ' (estimate from 10 t / 25 m ref)' : '';
 
-  const refOrEst: ProvenanceKind = isExtrapolated ? 'estimate' : 'reference_drawing';
-  const derivedOrEst: ProvenanceKind = isExtrapolated ? 'estimate' : 'derived';
-  const extNote = isExtrapolated
-    ? ' (extrapolated estimate from 10 t / 25 m reference drawing)'
-    : '';
-
-  const craneHeightAboveRailMm = REFERENCE.craneHeightAboveRailMm;
-  const roofClearanceMm = REFERENCE.roofClearanceMm;
-  const headroomAboveRailMm = craneHeightAboveRailMm + roofClearanceMm;
-  const craneTopElevationMm = input.railHeightMm + craneHeightAboveRailMm;
-  const requiredBuildingHeightMm = input.railHeightMm + headroomAboveRailMm;
+  const craneTopElevationMm = input.railHeightMm + REFERENCE.craneHeightAboveRailMm;
+  const requiredBuildingHeightMm = input.railHeightMm + REFERENCE.headroomAboveRailMm;
   const effectiveBuildingHeightMm = input.buildingHeightMm ?? requiredBuildingHeightMm;
   const actualRoofClearanceMm = effectiveBuildingHeightMm - craneTopElevationMm;
   const roofHeadroomMarginMm =
     input.buildingHeightMm !== null ? input.buildingHeightMm - requiredBuildingHeightMm : null;
-
   const girderUndersideElevationMm = input.railHeightMm + REFERENCE.girderUndersideAboveRailMm;
-  const girderDepthMm = REFERENCE.girderDepthMm;
-  const hookBelowGirderMm = REFERENCE.hookBelowGirderMm;
   const maxLiftHeightMm = input.railHeightMm - REFERENCE.liftLossMm;
   const liftMarginMm = maxLiftHeightMm - input.liftHeightMm;
-
-  const hookApproachLeftMm = REFERENCE.hookApproachLeftMm;
-  const hookApproachRightMm = REFERENCE.hookApproachRightMm;
-  const hookCoverageMm = input.spanMm - hookApproachLeftMm - hookApproachRightMm;
-
-  const endCarriageOverhangMm = REFERENCE.endCarriageOverhangMm;
-  const overallBridgeLengthMm = input.spanMm + 2 * endCarriageOverhangMm;
-
-  const minWallClearanceMm = REFERENCE.minWallClearanceMm;
-  const effectiveWallClearanceMm = input.wallClearanceMm ?? minWallClearanceMm;
-  const endToWallGapMm = effectiveWallClearanceMm - endCarriageOverhangMm;
-  const buildingInteriorWidthMm = input.spanMm + 2 * effectiveWallClearanceMm;
+  const hookCoverageMm =
+    input.spanMm - REFERENCE.hookApproachLeftMm - REFERENCE.hookApproachRightMm;
+  const overallBridgeLengthMm = input.spanMm + 2 * REFERENCE.endCarriageOverhangMm;
+  const effectiveWallClearanceMm = input.wallClearanceMm ?? REFERENCE.minWallClearanceMm;
+  const endToWallGapMm = effectiveWallClearanceMm - REFERENCE.endCarriageOverhangMm;
 
   const derived: DerivedDimensions = {
-    craneHeightAboveRailMm,
-    roofClearanceMm,
-    headroomAboveRailMm,
     craneTopElevationMm,
     requiredBuildingHeightMm,
     effectiveBuildingHeightMm,
     actualRoofClearanceMm,
     roofHeadroomMarginMm,
     girderUndersideElevationMm,
-    girderDepthMm,
-    hookBelowGirderMm,
     maxLiftHeightMm,
     liftMarginMm,
-    hookApproachLeftMm,
-    hookApproachRightMm,
     hookCoverageMm,
-    endCarriageOverhangMm,
     overallBridgeLengthMm,
-    minWallClearanceMm,
     effectiveWallClearanceMm,
     endToWallGapMm,
-    buildingInteriorWidthMm,
-    wheelbaseMm: REFERENCE.wheelbaseMm,
-    endCarriageLengthMm: REFERENCE.endCarriageLengthMm,
-    pendantBottomAboveFloorMm: REFERENCE.pendantBottomAboveFloorMm,
   };
 
-  const dimensions: DimensionRecord[] = [
-    {
-      key: 'capacityT',
-      label: 'Rated Capacity',
-      value: input.capacityT,
-      unit: 't',
-      provenance: 'user_input',
-      source: 'User input',
-    },
-    {
-      key: 'spanMm',
-      label: 'Span (rail centre to rail centre)',
-      value: input.spanMm,
-      unit: 'mm',
-      provenance: 'user_input',
-      source: 'User input',
-    },
-    {
-      key: 'railHeightMm',
-      label: 'Runway Rail Height (floor to rail top)',
-      value: input.railHeightMm,
-      unit: 'mm',
-      provenance: 'user_input',
-      source: 'User input',
-    },
-    {
-      key: 'liftHeightMm',
-      label: 'Requested Lifting Height',
-      value: input.liftHeightMm,
-      unit: 'mm',
-      provenance: 'user_input',
-      source: 'User input',
-    },
-    {
-      key: 'craneHeightAboveRailMm',
-      label: 'Crane Height Above Rail',
-      value: craneHeightAboveRailMm,
-      unit: 'mm',
-      provenance: refOrEst,
-      source: `Reference drawing p.4 (1369 mm)${extNote}`,
-    },
-    {
-      key: 'roofClearanceMm',
-      label: 'Minimum Roof Clearance',
-      value: roofClearanceMm,
-      unit: 'mm',
-      provenance: 'reference_drawing',
-      source: 'Reference drawing p.4 (200 mm above crane top)',
-    },
-    {
-      key: 'headroomAboveRailMm',
-      label: 'Required Headroom Above Rail',
-      value: headroomAboveRailMm,
-      unit: 'mm',
-      provenance: derivedOrEst,
-      source: `Rule R1: matches reference drawing (1569 mm)${extNote}`,
-      formula: 'craneHeightAboveRail + roofClearance (1369 + 200)',
-    },
-    {
-      key: 'craneTopElevationMm',
-      label: 'Crane Top Elevation Above Floor',
-      value: craneTopElevationMm,
-      unit: 'mm',
-      provenance: derivedOrEst,
-      source: `Rule R3${extNote}`,
-      formula: 'railHeight + craneHeightAboveRail',
-    },
-    {
-      key: 'requiredBuildingHeightMm',
-      label: 'Minimum Building Clear Height',
-      value: requiredBuildingHeightMm,
-      unit: 'mm',
-      provenance: derivedOrEst,
-      source: `Rule R2${extNote}`,
-      formula: 'railHeight + headroomAboveRail',
-    },
-    {
-      key: 'effectiveBuildingHeightMm',
-      label:
-        input.buildingHeightMm !== null
-          ? 'Building Clear Height (provided)'
-          : 'Building Clear Height (minimum required)',
-      value: effectiveBuildingHeightMm,
-      unit: 'mm',
-      provenance: input.buildingHeightMm !== null ? 'user_input' : derivedOrEst,
-      source:
-        input.buildingHeightMm !== null
-          ? 'User input'
-          : `Defaulted to minimum required height (Rule R2)${extNote}`,
-    },
-    {
-      key: 'hookBelowGirderMm',
-      label: 'Hook Below Girder Underside (highest position)',
-      value: hookBelowGirderMm,
-      unit: 'mm',
-      provenance: isExtrapolated ? 'estimate' : 'reference_drawing',
-      source: `Reference drawing p.4 (620 mm; datum interpreted as girder underside)${extNote}`,
-    },
-    {
-      key: 'maxLiftHeightMm',
-      label: 'Maximum Achievable Lifting Height',
-      value: maxLiftHeightMm,
-      unit: 'mm',
-      provenance: 'estimate',
-      source: `Rule R5: depends on interpreted 620 mm datum & 199 mm girder underside offset${extNote}`,
-      formula: 'railHeight - 421',
-    },
-    {
-      key: 'hookApproachLeftMm',
-      label: 'Min. Hook Approach (Left)',
-      value: hookApproachLeftMm,
-      unit: 'mm',
-      provenance: refOrEst,
-      source: `Reference drawing p.4 (Min.920)${extNote}`,
-    },
-    {
-      key: 'hookApproachRightMm',
-      label: 'Min. Hook Approach (Right)',
-      value: hookApproachRightMm,
-      unit: 'mm',
-      provenance: refOrEst,
-      source: `Reference drawing p.4 (Min.1150, asymmetric hoist)${extNote}`,
-    },
-    {
-      key: 'hookCoverageMm',
-      label: 'Effective Hook Coverage Across Span',
-      value: hookCoverageMm,
-      unit: 'mm',
-      provenance: derivedOrEst,
-      source: `Rule R8${extNote}`,
-      formula: 'span - hookApproachLeft - hookApproachRight',
-    },
-    {
-      key: 'overallBridgeLengthMm',
-      label: 'Overall Bridge Length',
-      value: overallBridgeLengthMm,
-      unit: 'mm',
-      provenance: derivedOrEst,
-      source: `Rule R6: matches reference drawing (25270 mm)${extNote}`,
-      formula: 'span + 2 × 135 (end-carriage overhang)',
-    },
-    {
-      key: 'effectiveWallClearanceMm',
-      label:
-        input.wallClearanceMm !== null
-          ? 'Side Wall Clearance (provided, per side)'
-          : 'Minimum Side Wall Clearance (per side)',
-      value: effectiveWallClearanceMm,
-      unit: 'mm',
-      provenance: input.wallClearanceMm !== null ? 'user_input' : refOrEst,
-      source:
-        input.wallClearanceMm !== null
-          ? 'User input (assumed symmetric both sides)'
-          : `Reference drawing p.4 (Min.235)${extNote}`,
-    },
-    {
-      key: 'endToWallGapMm',
-      label: 'Crane End to Wall Gap (per side)',
-      value: endToWallGapMm,
-      unit: 'mm',
-      provenance: derivedOrEst,
-      source: `Rule R7${extNote}`,
-      formula: 'wallClearance - 135',
-    },
-    {
-      key: 'wheelbaseMm',
-      label: 'End-Carriage Wheelbase',
-      value: REFERENCE.wheelbaseMm,
-      unit: 'mm',
-      provenance: refOrEst,
-      source: `Reference drawing p.4 Plan View (3800 mm)${extNote}`,
-    },
-    {
-      key: 'endCarriageLengthMm',
-      label: 'Overall End-Carriage Length (incl. buffers)',
-      value: REFERENCE.endCarriageLengthMm,
-      unit: 'mm',
-      provenance: refOrEst,
-      source: `Reference drawing p.4 Plan View (4310 mm = 3800 + 510)${extNote}`,
-    },
+  const dimensions: DimensionItem[] = [
+    dim('capacityT', 'Rated Capacity', input.capacityT, 't', 'user_input', 'User input'),
+    dim('spanMm', 'Span (rail CL to rail CL)', input.spanMm, 'mm', 'user_input', 'User input'),
+    dim('railHeightMm', 'Rail Height (floor to rail top)', input.railHeightMm, 'mm', 'user_input', 'User input'),
+    dim('liftHeightMm', 'Requested Lifting Height', input.liftHeightMm, 'mm', 'user_input', 'User input'),
+    dim('craneHeightAboveRailMm', 'Crane Height Above Rail', REFERENCE.craneHeightAboveRailMm, 'mm', refTag, `Ref p.4: 1369${ext}`),
+    dim('roofClearanceMm', 'Minimum Roof Clearance', REFERENCE.roofClearanceMm, 'mm', 'reference_drawing', 'Ref p.4: 200'),
+    dim('headroomAboveRailMm', 'Required Headroom Above Rail', REFERENCE.headroomAboveRailMm, 'mm', drvTag, `R1: 1369 + 200${ext}`),
+    dim('craneTopElevationMm', 'Crane Top Elevation', craneTopElevationMm, 'mm', drvTag, `R3: rail + 1369${ext}`),
+    dim('requiredBuildingHeightMm', 'Min. Building Clear Height', requiredBuildingHeightMm, 'mm', drvTag, `R2: rail + 1569${ext}`),
+    dim(
+      'effectiveBuildingHeightMm',
+      input.buildingHeightMm !== null ? 'Building Clear Height (provided)' : 'Building Clear Height (min. required)',
+      effectiveBuildingHeightMm,
+      'mm',
+      input.buildingHeightMm !== null ? 'user_input' : drvTag,
+      input.buildingHeightMm !== null ? 'User input' : `Defaulted to R2${ext}`,
+    ),
+    dim('hookBelowGirderMm', 'Hook Below Girder (highest)', REFERENCE.hookBelowGirderMm, 'mm', refTag, `Ref p.4: 620 (datum interpreted)${ext}`),
+    dim('maxLiftHeightMm', 'Max. Achievable Lift Height', maxLiftHeightMm, 'mm', 'estimate', `R5: rail − 421 (depends on 620 datum)${ext}`),
+    dim('hookApproachLeftMm', 'Min. Hook Approach (Left)', REFERENCE.hookApproachLeftMm, 'mm', refTag, `Ref p.4: Min.920${ext}`),
+    dim('hookApproachRightMm', 'Min. Hook Approach (Right)', REFERENCE.hookApproachRightMm, 'mm', refTag, `Ref p.4: Min.1150 (asymmetric)${ext}`),
+    dim('hookCoverageMm', 'Hook Coverage Across Span', hookCoverageMm, 'mm', drvTag, `R8: span − 920 − 1150${ext}`),
+    dim('overallBridgeLengthMm', 'Overall Bridge Length', overallBridgeLengthMm, 'mm', drvTag, `R6: span + 2 × 135${ext}`),
+    dim(
+      'effectiveWallClearanceMm',
+      input.wallClearanceMm !== null ? 'Wall Clearance (provided, per side)' : 'Min. Wall Clearance (per side)',
+      effectiveWallClearanceMm,
+      'mm',
+      input.wallClearanceMm !== null ? 'user_input' : refTag,
+      input.wallClearanceMm !== null ? 'User input (symmetric)' : `Ref p.4: Min.235${ext}`,
+    ),
+    dim('endToWallGapMm', 'Crane End to Wall Gap (per side)', endToWallGapMm, 'mm', drvTag, `R7: wallClearance − 135${ext}`),
   ];
 
   return {
@@ -500,36 +259,7 @@ export function evaluateDesign(input: DesignInput): DesignEvaluation {
     isExtrapolated,
     derived,
     dimensions,
-    warnings: collectDomainWarnings(input),
+    warnings: collectWarnings(input),
     disclaimer: PRELIMINARY_DISCLAIMER,
   };
 }
-
-export type FullValidationResult =
-  | { ok: true; input: DesignInput; evaluation: DesignEvaluation }
-  | { ok: false; issues: ValidationIssue[] };
-
-/**
- * Runs both validation layers in sequence:
- * 1. Schema validation (Zod): types, required fields, sanity bounds.
- * 2. Domain validation (rules.ts): cross-field physical fit rules.
- */
-export function validateAndEvaluateDesign(payload: unknown): FullValidationResult {
-  const parsed = parseDesignInput(payload);
-  if (!parsed.ok) {
-    return parsed;
-  }
-
-  const domainIssues = validateDomainRules(parsed.data);
-  if (domainIssues.length > 0) {
-    return { ok: false, issues: domainIssues };
-  }
-
-  return {
-    ok: true,
-    input: parsed.data,
-    evaluation: evaluateDesign(parsed.data),
-  };
-}
-
-export { ALLOWED_CAPACITIES_T };

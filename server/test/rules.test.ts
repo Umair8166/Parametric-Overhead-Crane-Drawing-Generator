@@ -4,10 +4,9 @@ import {
   REFERENCE,
   RULES_VERSION,
   evaluateDesign,
-  validateAndEvaluateDesign,
   validateDomainRules,
 } from '../src/rules.js';
-import { parseDesignInput } from '../src/validation.js';
+import { parseDesignInput, validateAndEvaluateDesign } from '../src/validation.js';
 
 describe('crane rules — golden reference drawing test (p.4)', () => {
   it('reproduces all reference drawing dimensions exactly with no warnings', () => {
@@ -20,32 +19,19 @@ describe('crane rules — golden reference drawing test (p.4)', () => {
     expect(evaluation.isExtrapolated).toBe(false);
     expect(evaluation.warnings).toEqual([]);
 
-    expect(evaluation.derived).toMatchObject({
-      craneHeightAboveRailMm: 1369,
-      roofClearanceMm: 200,
-      headroomAboveRailMm: 1569,
+    expect(evaluation.derived).toEqual({
       craneTopElevationMm: 9690,
       requiredBuildingHeightMm: 9890,
       effectiveBuildingHeightMm: 9890,
       actualRoofClearanceMm: 200,
       roofHeadroomMarginMm: 0,
       girderUndersideElevationMm: 8520,
-      girderDepthMm: 1170,
-      hookBelowGirderMm: 620,
       maxLiftHeightMm: 7900,
       liftMarginMm: 0,
-      hookApproachLeftMm: 920,
-      hookApproachRightMm: 1150,
       hookCoverageMm: 22930,
-      endCarriageOverhangMm: 135,
       overallBridgeLengthMm: 25270,
-      minWallClearanceMm: 235,
       effectiveWallClearanceMm: 235,
       endToWallGapMm: 100,
-      buildingInteriorWidthMm: 25470,
-      wheelbaseMm: 3800,
-      endCarriageLengthMm: 4310,
-      pendantBottomAboveFloorMm: 1000,
     });
 
     const byKey = Object.fromEntries(evaluation.dimensions.map((d) => [d.key, d]));
@@ -53,13 +39,13 @@ describe('crane rules — golden reference drawing test (p.4)', () => {
     expect(byKey.craneHeightAboveRailMm.provenance).toBe('reference_drawing');
     expect(byKey.headroomAboveRailMm.provenance).toBe('derived');
     expect(byKey.overallBridgeLengthMm.provenance).toBe('derived');
-    // Rule R5 always depends on the interpreted 620 mm datum -> explicitly flagged as estimate.
+    // Rule R5 depends on the interpreted 620 mm datum -> explicitly flagged as estimate.
     expect(byKey.maxLiftHeightMm.provenance).toBe('estimate');
   });
 });
 
 describe('domain validation rules (cross-field fit checks)', () => {
-  it('accepts lift height exactly at railHeightMm - 421 and rejects 1 mm over', () => {
+  it('accepts lift height at railHeightMm - 421 and rejects 1 mm over', () => {
     const atLimit = validateAndEvaluateDesign({
       ...DEFAULT_DESIGN_INPUT,
       railHeightMm: 9000,
@@ -80,9 +66,9 @@ describe('domain validation rules (cross-field fit checks)', () => {
     });
     expect(oneMmOver.ok).toBe(false);
     if (!oneMmOver.ok) {
-      expect(oneMmOver.issues).toHaveLength(1);
-      expect(oneMmOver.issues[0].field).toBe('liftHeightMm');
-      expect(oneMmOver.issues[0].code).toBe('LIFT_EXCEEDS_MAX');
+      expect(oneMmOver.errors).toHaveLength(1);
+      expect(oneMmOver.errors[0].field).toBe('liftHeightMm');
+      expect(oneMmOver.errors[0].message).toContain('8579 mm');
     }
   });
 
@@ -112,13 +98,13 @@ describe('domain validation rules (cross-field fit checks)', () => {
     });
     expect(tooLow.ok).toBe(false);
     if (!tooLow.ok) {
-      expect(tooLow.issues).toHaveLength(1);
-      expect(tooLow.issues[0].field).toBe('buildingHeightMm');
-      expect(tooLow.issues[0].code).toBe('BUILDING_HEIGHT_INSUFFICIENT');
+      expect(tooLow.errors).toHaveLength(1);
+      expect(tooLow.errors[0].field).toBe('buildingHeightMm');
+      expect(tooLow.errors[0].message).toContain('9890 mm');
     }
   });
 
-  it('computes roof margin when buildingHeightMm exceeds minimum and defaults when omitted', () => {
+  it('computes roof margin when taller than minimum and defaults when optional fields omitted', () => {
     const taller = validateAndEvaluateDesign({
       ...DEFAULT_DESIGN_INPUT,
       buildingHeightMm: 10500,
@@ -149,9 +135,9 @@ describe('domain validation rules (cross-field fit checks)', () => {
     });
     expect(tooNarrow.ok).toBe(false);
     if (!tooNarrow.ok) {
-      expect(tooNarrow.issues).toHaveLength(1);
-      expect(tooNarrow.issues[0].field).toBe('wallClearanceMm');
-      expect(tooNarrow.issues[0].code).toBe('WALL_CLEARANCE_INSUFFICIENT');
+      expect(tooNarrow.errors).toHaveLength(1);
+      expect(tooNarrow.errors[0].field).toBe('wallClearanceMm');
+      expect(tooNarrow.errors[0].message).toContain('235 mm');
     }
   });
 
@@ -164,21 +150,20 @@ describe('domain validation rules (cross-field fit checks)', () => {
     });
     expect(res.ok).toBe(false);
     if (!res.ok) {
-      const codes = res.issues.map((i) => i.code);
-      expect(codes).toEqual([
-        'LIFT_EXCEEDS_MAX',
-        'BUILDING_HEIGHT_INSUFFICIENT',
-        'WALL_CLEARANCE_INSUFFICIENT',
+      expect(res.errors.map((e) => e.field)).toEqual([
+        'liftHeightMm',
+        'buildingHeightMm',
+        'wallClearanceMm',
       ]);
     }
   });
 
   it('guards span <= hook approaches when validateDomainRules is called directly', () => {
-    const issues = validateDomainRules({
+    const errors = validateDomainRules({
       ...DEFAULT_DESIGN_INPUT,
       spanMm: 2000,
     });
-    expect(issues.some((i) => i.code === 'SPAN_TOO_SMALL_FOR_APPROACHES')).toBe(true);
+    expect(errors.some((e) => e.field === 'spanMm')).toBe(true);
   });
 });
 
@@ -192,7 +177,7 @@ describe('engineering honesty — warnings and estimate provenance', () => {
     if (!res.ok) return;
 
     expect(res.evaluation.isExtrapolated).toBe(true);
-    expect(res.evaluation.warnings.map((w) => w.code)).toEqual(['CAPACITY_EXTRAPOLATED']);
+    expect(res.evaluation.warnings.map((w) => w.field)).toEqual(['capacityT']);
     const craneHeight = res.evaluation.dimensions.find((d) => d.key === 'craneHeightAboveRailMm');
     expect(craneHeight?.provenance).toBe('estimate');
   });
@@ -200,7 +185,7 @@ describe('engineering honesty — warnings and estimate provenance', () => {
   it('warns on spans > 25000 mm (non-conservative headroom) but not on spans < 25000 mm', () => {
     const longer = evaluateDesign({ ...DEFAULT_DESIGN_INPUT, spanMm: 28000 });
     expect(longer.isExtrapolated).toBe(true);
-    expect(longer.warnings.map((w) => w.code)).toEqual(['SPAN_ABOVE_REFERENCE']);
+    expect(longer.warnings.map((w) => w.field)).toEqual(['spanMm']);
 
     const shorter = evaluateDesign({ ...DEFAULT_DESIGN_INPUT, spanMm: 16000 });
     expect(shorter.isExtrapolated).toBe(true);
@@ -216,10 +201,7 @@ describe('engineering honesty — warnings and estimate provenance', () => {
       capacityT: 16,
       spanMm: 30000,
     });
-    expect(evalRes.warnings.map((w) => w.code)).toEqual([
-      'CAPACITY_EXTRAPOLATED',
-      'SPAN_ABOVE_REFERENCE',
-    ]);
+    expect(evalRes.warnings.map((w) => w.field)).toEqual(['capacityT', 'spanMm']);
   });
 });
 
@@ -231,31 +213,20 @@ describe('schema validation (Zod layer)', () => {
 
     const blank = parseDesignInput({ ...DEFAULT_DESIGN_INPUT, name: '   ' });
     expect(blank.ok).toBe(false);
-    if (!blank.ok) expect(blank.issues[0].field).toBe('name');
+    if (!blank.ok) expect(blank.errors[0].field).toBe('name');
   });
 
   it('rejects non-catalog capacity, floats, string numbers, and out-of-range bounds', () => {
-    const badCapacity = parseDesignInput({ ...DEFAULT_DESIGN_INPUT, capacityT: 7 });
-    expect(badCapacity.ok).toBe(false);
-
-    const floatSpan = parseDesignInput({ ...DEFAULT_DESIGN_INPUT, spanMm: 25000.5 });
-    expect(floatSpan.ok).toBe(false);
-
-    const stringSpan = parseDesignInput({ ...DEFAULT_DESIGN_INPUT, spanMm: '25000' });
-    expect(stringSpan.ok).toBe(false);
-
-    const shortSpan = parseDesignInput({ ...DEFAULT_DESIGN_INPUT, spanMm: 4999 });
-    expect(shortSpan.ok).toBe(false);
-
-    const longSpan = parseDesignInput({ ...DEFAULT_DESIGN_INPUT, spanMm: 30001 });
-    expect(longSpan.ok).toBe(false);
+    expect(parseDesignInput({ ...DEFAULT_DESIGN_INPUT, capacityT: 7 }).ok).toBe(false);
+    expect(parseDesignInput({ ...DEFAULT_DESIGN_INPUT, spanMm: 25000.5 }).ok).toBe(false);
+    expect(parseDesignInput({ ...DEFAULT_DESIGN_INPUT, spanMm: '25000' }).ok).toBe(false);
+    expect(parseDesignInput({ ...DEFAULT_DESIGN_INPUT, spanMm: 4999 }).ok).toBe(false);
+    expect(parseDesignInput({ ...DEFAULT_DESIGN_INPUT, spanMm: 30001 }).ok).toBe(false);
   });
 
   it('handles non-object payloads cleanly', () => {
     const res = parseDesignInput(null);
     expect(res.ok).toBe(false);
-    if (!res.ok) {
-      expect(res.issues[0].field).toBe('body');
-    }
+    if (!res.ok) expect(res.errors[0].field).toBe('body');
   });
 });
