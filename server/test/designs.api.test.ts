@@ -27,6 +27,7 @@ describe('/api/designs', () => {
       expect(res.body.input).toEqual(DEFAULT_DESIGN_INPUT);
       expect(res.body.evaluation.derived.overallBridgeLengthMm).toBe(25270);
       expect(res.body.evaluation.warnings).toEqual([]);
+      expect(res.body.svg).toContain('<svg ');
 
       const list = await request(app).get('/api/designs');
       expect(list.body.designs).toEqual([]);
@@ -89,6 +90,7 @@ describe('/api/designs', () => {
       expect(created1.body.input.buildingHeightMm).toBeNull();
       expect(created1.body.input.wallClearanceMm).toBeNull();
       expect(created1.body.evaluation.derived.overallBridgeLengthMm).toBe(18270);
+      expect(created1.body.svg).toContain('Bay 1 Crane');
 
       // 3. Create second design (reference crane)
       const created2 = await request(app).post('/api/designs').send(DEFAULT_DESIGN_INPUT);
@@ -100,11 +102,12 @@ describe('/api/designs', () => {
       expect(list.status).toBe(200);
       expect(list.body.designs.map((d: { id: number }) => d.id)).toEqual([2, 1]);
 
-      // 5. Reopen design 1 and verify derived values recomputed from stored inputs
+      // 5. Reopen design 1 and verify derived values + SVG recomputed from stored inputs
       const reopened = await request(app).get('/api/designs/1');
       expect(reopened.status).toBe(200);
       expect(reopened.body.input.name).toBe('Bay 1 Crane');
       expect(reopened.body.evaluation.derived.requiredBuildingHeightMm).toBe(8569);
+      expect(reopened.body.svg).toContain('18,000');
 
       // 6. Edit design 1 with valid changes
       const edited = await request(app).put('/api/designs/1').send({
@@ -122,6 +125,7 @@ describe('/api/designs', () => {
       expect(edited.body.input.name).toBe('Bay 1 Crane Rev B');
       expect(edited.body.evaluation.derived.overallBridgeLengthMm).toBe(20270);
       expect(edited.body.evaluation.derived.endToWallGapMm).toBe(165);
+      expect(edited.body.svg).toContain('Bay 1 Crane Rev B');
 
       // 7. Invalid edit fails with 422 and leaves stored record unchanged
       const badEdit = await request(app).put('/api/designs/1').send({
@@ -140,6 +144,28 @@ describe('/api/designs', () => {
       const afterDelete = await request(app).get('/api/designs/1');
       expect(afterDelete.status).toBe(404);
       expect(afterDelete.body.error.code).toBe('NOT_FOUND');
+    });
+  });
+
+  describe('SVG drawing download endpoint', () => {
+    it('serves downloadable image/svg+xml and returns 404/400 on bad IDs', async () => {
+      const created = await request(app).post('/api/designs').send(DEFAULT_DESIGN_INPUT);
+      expect(created.status).toBe(201);
+
+      const download = await request(app).get(`/api/designs/${created.body.id}/drawing.svg`);
+      expect(download.status).toBe(200);
+      expect(download.headers['content-type']).toContain('image/svg+xml');
+      expect(download.headers['content-disposition']).toContain('10t-25m-7.9m.svg');
+      const svgText = Buffer.isBuffer(download.body)
+        ? download.body.toString('utf8')
+        : download.text;
+      expect(svgText).toContain('Overall bridge 25,270');
+
+      const missing = await request(app).get('/api/designs/999/drawing.svg');
+      expect(missing.status).toBe(404);
+
+      const invalid = await request(app).get('/api/designs/abc/drawing.svg');
+      expect(invalid.status).toBe(400);
     });
   });
 

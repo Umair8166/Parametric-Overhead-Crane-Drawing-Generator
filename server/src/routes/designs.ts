@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { Router, type Response } from 'express';
 import { createDesign, deleteDesign, getDesignById, listDesigns, updateDesign } from '../db.js';
+import { renderCraneSvg } from '../drawing.js';
 import { type FieldMessage, RULES_VERSION, evaluateDesign } from '../rules.js';
 import { validateAndEvaluateDesign } from '../validation.js';
 
@@ -41,7 +42,7 @@ function sendInvalidId(res: Response): void {
 export function createDesignsRouter(db: Database.Database): Router {
   const router = Router();
 
-  // Validate and compute a design without saving it to the database.
+  // Validate and compute a design (plus SVG) without saving it to SQLite.
   router.post('/preview', (req, res) => {
     const result = validateAndEvaluateDesign(req.body);
     if (!result.ok) {
@@ -52,6 +53,7 @@ export function createDesignsRouter(db: Database.Database): Router {
     res.json({
       input: result.input,
       evaluation: result.evaluation,
+      svg: renderCraneSvg(result.input, result.evaluation),
     });
   });
 
@@ -72,10 +74,34 @@ export function createDesignsRouter(db: Database.Database): Router {
     res.status(201).json({
       ...saved,
       evaluation: result.evaluation,
+      svg: renderCraneSvg(saved.input, result.evaluation),
     });
   });
 
-  // Reopen a saved design and recompute derived dimensions from stored inputs.
+  // Download a saved design's generated SVG drawing directly.
+  router.get('/:id/drawing.svg', (req, res) => {
+    const id = parsePositiveId(req.params.id);
+    if (id === null) {
+      sendInvalidId(res);
+      return;
+    }
+
+    const saved = getDesignById(db, id);
+    if (!saved) {
+      sendNotFound(res, id);
+      return;
+    }
+
+    const evaluation = evaluateDesign(saved.input);
+    const svg = renderCraneSvg(saved.input, evaluation);
+    const safeFile = saved.input.name.replace(/[^a-zA-Z0-9._-]+/g, '_') || `design-${id}`;
+    res
+      .type('image/svg+xml; charset=utf-8')
+      .set('Content-Disposition', `attachment; filename="${safeFile}.svg"`)
+      .send(svg);
+  });
+
+  // Reopen a saved design and recompute derived dimensions + SVG from stored inputs.
   router.get('/:id', (req, res) => {
     const id = parsePositiveId(req.params.id);
     if (id === null) {
@@ -89,9 +115,11 @@ export function createDesignsRouter(db: Database.Database): Router {
       return;
     }
 
+    const evaluation = evaluateDesign(saved.input);
     res.json({
       ...saved,
-      evaluation: evaluateDesign(saved.input),
+      evaluation,
+      svg: renderCraneSvg(saved.input, evaluation),
     });
   });
 
@@ -119,6 +147,7 @@ export function createDesignsRouter(db: Database.Database): Router {
     res.json({
       ...updated,
       evaluation: result.evaluation,
+      svg: renderCraneSvg(updated.input, result.evaluation),
     });
   });
 
