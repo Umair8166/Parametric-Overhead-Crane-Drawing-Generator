@@ -25,6 +25,7 @@ export function App() {
   const [formValues, setFormValues] = useState<FormValues>(REFERENCE_FORM_VALUES);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  const [isPreviewStale, setIsPreviewStale] = useState(false);
 
   const [designs, setDesigns] = useState<DesignSummary[]>([]);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
@@ -71,6 +72,7 @@ export function App() {
   function handleChange(field: keyof FormValues, value: string) {
     setFormValues((prev) => ({ ...prev, [field]: value }));
     setIsDirty(true);
+    setIsPreviewStale(true);
     setStatusMessage(null);
     setFieldErrors((prev) => prev.filter((e) => e.field !== field));
   }
@@ -82,6 +84,7 @@ export function App() {
     try {
       const res = await previewDesign(formValuesToPayload(formValues));
       setPreview(res);
+      setIsPreviewStale(false);
       setFieldErrors([]);
       setStatusMessage('Preview updated (not saved).');
     } catch (err) {
@@ -103,6 +106,7 @@ export function App() {
       setFormValues(inputToFormValues(saved.input));
       setPreview(saved);
       setIsDirty(false);
+      setIsPreviewStale(false);
       setFieldErrors([]);
       setDesigns(await listDesigns());
       setStatusMessage(
@@ -115,7 +119,7 @@ export function App() {
     }
   }
 
-  async function handleOpenDesign(id: number) {
+  async function handleOpenDesign(id: number, customStatus?: string) {
     setBusy(true);
     setBannerError(null);
     setStatusMessage(null);
@@ -125,8 +129,9 @@ export function App() {
       setFormValues(inputToFormValues(detail.input));
       setPreview(detail);
       setIsDirty(false);
+      setIsPreviewStale(false);
       setFieldErrors([]);
-      setStatusMessage(`Opened design #${detail.id} (${detail.input.name}).`);
+      setStatusMessage(customStatus ?? `Opened design #${detail.id} (${detail.input.name}).`);
     } catch (err) {
       handleApiError(err);
     } finally {
@@ -153,26 +158,36 @@ export function App() {
     }
   }
 
-  function handleNewDesign() {
+  async function startFromReference(status: string) {
+    setBusy(true);
     setEditingId(null);
     setFormValues(REFERENCE_FORM_VALUES);
     setIsDirty(false);
     setFieldErrors([]);
     setBannerError(null);
-    setStatusMessage('Started a new design from reference defaults.');
-  }
-
-  async function handleLoadReference() {
-    setFormValues(REFERENCE_FORM_VALUES);
-    setIsDirty(editingId !== null);
-    setFieldErrors([]);
-    setBannerError(null);
     try {
       const res = await previewDesign(formValuesToPayload(REFERENCE_FORM_VALUES));
       setPreview(res);
-      setStatusMessage('Loaded 10t / 25m reference drawing parameters.');
+      setIsPreviewStale(false);
+      setStatusMessage(status);
     } catch (err) {
       handleApiError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleNewDesign() {
+    void startFromReference('Started a new design from reference defaults.');
+  }
+
+  function handleResetReference() {
+    void startFromReference('Reset to 10t / 25m reference parameters.');
+  }
+
+  function handleRevert() {
+    if (editingId !== null) {
+      void handleOpenDesign(editingId, `Reverted unsaved changes to design #${editingId}.`);
     }
   }
 
@@ -206,19 +221,25 @@ export function App() {
             onPreview={handlePreview}
             onSave={handleSave}
             onNewDesign={handleNewDesign}
-            onLoadReference={handleLoadReference}
+            onResetReference={handleResetReference}
+            onRevert={handleRevert}
           />
           <DesignList
             designs={designs}
             activeId={editingId}
             busy={busy}
-            onSelect={handleOpenDesign}
+            onSelect={(id) => void handleOpenDesign(id)}
             onDelete={handleDeleteDesign}
           />
         </aside>
 
         <section className="right-column">
-          <DrawingPanel preview={preview} savedId={editingId} isDirty={isDirty} />
+          <DrawingPanel
+            preview={preview}
+            savedId={editingId}
+            isDirty={isDirty}
+            isPreviewStale={isPreviewStale}
+          />
         </section>
       </main>
     </div>

@@ -5,6 +5,7 @@ interface DrawingPanelProps {
   preview: PreviewResponse | null;
   savedId: number | null;
   isDirty: boolean;
+  isPreviewStale: boolean;
 }
 
 const PROVENANCE_LABEL: Record<Provenance, string> = {
@@ -14,7 +15,7 @@ const PROVENANCE_LABEL: Record<Provenance, string> = {
   estimate: 'Estimate',
 };
 
-export function DrawingPanel({ preview, savedId, isDirty }: DrawingPanelProps) {
+export function DrawingPanel({ preview, savedId, isDirty, isPreviewStale }: DrawingPanelProps) {
   if (!preview) {
     return (
       <section className="card drawing-panel">
@@ -45,19 +46,24 @@ export function DrawingPanel({ preview, savedId, isDirty }: DrawingPanelProps) {
               {evaluation.craneType} · Rules <code>{evaluation.rulesVersion}</code>
             </p>
           </div>
-          {savedId !== null && !isDirty ? (
-            <a className="btn btn-secondary btn-sm" href={drawingDownloadUrl(savedId)} download>
-              Download SVG
-            </a>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={handleClientDownload}
-            >
-              Download SVG
-            </button>
-          )}
+          <div className="header-actions">
+            {isPreviewStale && (
+              <span className="badge badge-info">Inputs edited — click Preview or Save</span>
+            )}
+            {savedId !== null && !isDirty ? (
+              <a className="btn btn-secondary btn-sm" href={drawingDownloadUrl(savedId)} download>
+                Download SVG
+              </a>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleClientDownload}
+              >
+                Download SVG
+              </button>
+            )}
+          </div>
         </div>
 
         {evaluation.warnings.length > 0 && (

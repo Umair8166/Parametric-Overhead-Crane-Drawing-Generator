@@ -11,8 +11,19 @@ interface DesignFormProps {
   onPreview: () => void;
   onSave: () => void;
   onNewDesign: () => void;
-  onLoadReference: () => void;
+  onResetReference: () => void;
+  onRevert: () => void;
 }
+
+const KNOWN_FIELDS = new Set([
+  'name',
+  'capacityT',
+  'spanMm',
+  'railHeightMm',
+  'liftHeightMm',
+  'buildingHeightMm',
+  'wallClearanceMm',
+]);
 
 export function DesignForm({
   values,
@@ -24,23 +35,17 @@ export function DesignForm({
   onPreview,
   onSave,
   onNewDesign,
-  onLoadReference,
+  onResetReference,
+  onRevert,
 }: DesignFormProps) {
   const errorFor = (field: string) =>
     fieldErrors.filter((e) => e.field === field).map((e) => e.message);
+  const invalidProps = (field: string) => {
+    const hasError = fieldErrors.some((e) => e.field === field);
+    return hasError ? { className: 'input-invalid', 'aria-invalid': true as const } : {};
+  };
 
-  const generalErrors = fieldErrors.filter(
-    (e) =>
-      ![
-        'name',
-        'capacityT',
-        'spanMm',
-        'railHeightMm',
-        'liftHeightMm',
-        'buildingHeightMm',
-        'wallClearanceMm',
-      ].includes(e.field),
-  );
+  const generalErrors = fieldErrors.filter((e) => !KNOWN_FIELDS.has(e.field));
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -60,13 +65,34 @@ export function DesignForm({
       </div>
 
       <div className="quick-actions">
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onLoadReference} disabled={busy}>
-          Load Reference (10t / 25m)
-        </button>
-        {editingId !== null && (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onNewDesign} disabled={busy}>
-            + New Design
+        {editingId === null ? (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={onResetReference}
+            disabled={busy}
+          >
+            Reset to Reference (10t / 25m)
           </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={onNewDesign}
+              disabled={busy}
+            >
+              + New Design
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={onRevert}
+              disabled={busy || !isDirty}
+            >
+              Revert Changes
+            </button>
+          </>
         )}
       </div>
 
@@ -88,6 +114,7 @@ export function DesignForm({
             value={values.name}
             onChange={(e) => onChange('name', e.target.value)}
             placeholder="e.g. Bay-2 10t-20m"
+            {...invalidProps('name')}
           />
           {errorFor('name').map((msg, i) => (
             <p key={i} className="field-error">
@@ -103,6 +130,7 @@ export function DesignForm({
               id="capacityT"
               value={values.capacityT}
               onChange={(e) => onChange('capacityT', e.target.value)}
+              {...invalidProps('capacityT')}
             >
               {ALLOWED_CAPACITIES_T.map((cap) => (
                 <option key={cap} value={cap}>
@@ -125,6 +153,7 @@ export function DesignForm({
               inputMode="numeric"
               value={values.spanMm}
               onChange={(e) => onChange('spanMm', e.target.value)}
+              {...invalidProps('spanMm')}
             />
             <span className="hint">5,000 – 30,000 mm</span>
             {errorFor('spanMm').map((msg, i) => (
@@ -144,6 +173,7 @@ export function DesignForm({
               inputMode="numeric"
               value={values.railHeightMm}
               onChange={(e) => onChange('railHeightMm', e.target.value)}
+              {...invalidProps('railHeightMm')}
             />
             <span className="hint">Floor to rail top (3,000 – 15,000)</span>
             {errorFor('railHeightMm').map((msg, i) => (
@@ -161,6 +191,7 @@ export function DesignForm({
               inputMode="numeric"
               value={values.liftHeightMm}
               onChange={(e) => onChange('liftHeightMm', e.target.value)}
+              {...invalidProps('liftHeightMm')}
             />
             <span className="hint">Max ≤ rail height − 421 mm (R5)</span>
             {errorFor('liftHeightMm').map((msg, i) => (
@@ -175,7 +206,7 @@ export function DesignForm({
           <legend>Optional Building Constraints</legend>
           <div className="field-row">
             <div className="field">
-              <label htmlFor="buildingHeightMm">Building Clear Height (mm)</label>
+              <label htmlFor="buildingHeightMm">Building Height (mm)</label>
               <input
                 id="buildingHeightMm"
                 type="number"
@@ -183,8 +214,9 @@ export function DesignForm({
                 value={values.buildingHeightMm}
                 onChange={(e) => onChange('buildingHeightMm', e.target.value)}
                 placeholder="Auto (min. required)"
+                {...invalidProps('buildingHeightMm')}
               />
-              <span className="hint">Min ≥ rail + 1,569 mm (R2)</span>
+              <span className="hint">Floor to roof · min ≥ rail + 1,569</span>
               {errorFor('buildingHeightMm').map((msg, i) => (
                 <p key={i} className="field-error">
                   {msg}
@@ -193,7 +225,7 @@ export function DesignForm({
             </div>
 
             <div className="field">
-              <label htmlFor="wallClearanceMm">Wall Clearance / side (mm)</label>
+              <label htmlFor="wallClearanceMm">Wall Clearance (mm)</label>
               <input
                 id="wallClearanceMm"
                 type="number"
@@ -201,8 +233,9 @@ export function DesignForm({
                 value={values.wallClearanceMm}
                 onChange={(e) => onChange('wallClearanceMm', e.target.value)}
                 placeholder="Default 235"
+                {...invalidProps('wallClearanceMm')}
               />
-              <span className="hint">Min ≥ 235 mm (ref. Min.235)</span>
+              <span className="hint">Per side · min ≥ 235 (ref. Min.235)</span>
               {errorFor('wallClearanceMm').map((msg, i) => (
                 <p key={i} className="field-error">
                   {msg}
