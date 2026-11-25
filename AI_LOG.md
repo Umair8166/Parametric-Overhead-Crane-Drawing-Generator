@@ -17,7 +17,7 @@
    > Asked the AI to read all pages of the assignment PDF — inspecting the actual visuals and zooming into the reference drawing on page 4 rather than relying only on extracted text — explain the crane engineering terms in simple language, separate confirmed facts from assumptions/ambiguities, and produce a prioritized 4-hour implementation roadmap without writing any code yet.
 
 2. **Stack Selection & Honest Pushback:**
-   > Reviewed the AI's initial Python/FastAPI recommendation and pushed back: *"I'm a MERN Stack Developer with 3 years of experience. So I think the better stack for me would be Node.js + TypeScript, Express, Zod, better-sqlite3, server-side SVG with no drawing library, Vitest + supertest, and Vite + React served by Express via `npm install && npm start`. Tell me honestly if you disagree."*
+   > Reviewed the AI's initial Python/FastAPI recommendation and pushed back: *"I'm a MERN Stack Developer with nearly 4 years of experience. So I think the better stack for me would be Node.js + TypeScript, Express, Zod, better-sqlite3, server-side SVG with no drawing library, Vitest + supertest, and Vite + React served by Express via `npm install && npm start`. Tell me honestly if you disagree."*
 
 3. **Complexity Review & Refactoring Check (after Step 2):**
    > Paused before Step 3 to review the generated code and challenged it directly: *"Don't you think our current implementation might be unnecessarily complex? I believe we should keep the code as simple and easy to understand as possible, especially because we may need to explain our technical decisions in an interview. Be brutally honest."*

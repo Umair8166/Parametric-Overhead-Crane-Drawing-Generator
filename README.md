@@ -110,4 +110,4 @@ Non-blocking **warnings** are returned in the API and rendered directly on the S
 ## Time Spent
 
 <!-- TODO: Replace with your exact real hours spent (including writing DECISIONS.md and recording the demo video) before submitting -->
-- **Real hours spent:** ~`[UPDATE WITH YOUR REAL HOURS]` hours (analysis & domain review, backend/rules/drawing/frontend implementation, code review/refactoring, testing, documentation, and demo video).
+- **Real hours spent:** ~6 hours (analysis & domain review, backend/rules/drawing/frontend implementation, code review/refactoring, testing, documentation, and demo video).
